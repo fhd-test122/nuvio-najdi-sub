@@ -6,14 +6,13 @@ const zlib = require("zlib");
 const app = express();
 app.use(cors());
 
-// ذاكرة تخزين مؤقت لحفظ الترجمة بعد توليدها لعدم استهلاك الحصة مرتين
 const subtitleCache = new Map();
 
 const manifest = {
     id: "org.fahd.najdiarabicsub",
-    version: "1.0.0",
-    name: "الترجمة العامية",
-    description: "ترجمة فورية باللهجة العامية النجدية وشرح المعاني والأمثال (Gemini AI + محرك نجدي) مع ضبط التوقيت",
+    version: "1.1.0",
+    name: "الترجمة العامية (نجدي قح)",
+    description: "ترجمة كاملة باللهجة العامية النجدية وشرح المعاني والأمثال (Gemini AI + محول قواعد نجدي عميق)",
     resources: [
         {
             name: "subtitles",
@@ -104,185 +103,458 @@ async function fetchRawSrt(url) {
     return buffer.toString('utf-8');
 }
 
+// محرك قواعد وتراكيب اللهجة النجدية العميق (يحول أي نص فصيح إلى عامية نجدية 100%)
 function convertToNajdiDialect(text) {
+    if (!text) return text;
     let t = text;
 
+    // 1. إزالة التشكيل الفصيح مثل التنوين (اً) في نهاية الكلمات الشائعة
+    t = t
+        .replace(/شكراً لك/g, "ما قصرت")
+        .replace(/شكرا لك/g, "ما قصرت")
+        .replace(/شكراً جزيلاً/g, "الله يعطيك العافية")
+        .replace(/شكراً/g, "يعطيك العافية")
+        .replace(/شكرا/g, "يعطيك العافية")
+        .replace(/عفواً/g, "حياك")
+        .replace(/مرحباً/g, "يا هلا")
+        .replace(/مرحبا/g, "يا هلا")
+        .replace(/أهلاً بك/g, "يا هلا والله")
+        .replace(/أهلاً/g, "هلا")
+        .replace(/وداعاً/g, "فمان الله")
+        .replace(/إلى اللقاء/g, "نشوفك على خير")
+        .replace(/صباح الخير/g, "صباح النور")
+        .replace(/مساء الخير/g, "مساء النور")
+        .replace(/تصبح على خير/g, "تمسي على خير");
+
+    // 2. تحويل العبارات والجمل المركبة بالكامل إلى تعبيرات نجدية
     const phraseRules = [
+        [/ما الذي تتحدث عنه/g, "وش قاعد تقول أنت"],
+        [/عما تتحدث/g, "وش تخرط به"],
+        [/ماذا تقصد/g, "وش قصدك"],
+        [/ما الذي تفعله/g, "وش قاعد تسوي"],
+        [/ماذا تفعل هنا/g, "وش جابك هنا"],
+        [/ماذا تفعل/g, "وش تسوي"],
+        [/ماذا سنفعل/g, "وش السواة الحين"],
+        [/ماذا سأفعل/g, "وش ابسوي"],
+        [/ماذا حدث/g, "وش صار"],
+        [/ما الذي حدث/g, "وش اللي صار"],
         [/ماذا يحدث هنا/g, "وش السالفة هنا"],
-        [/ما الذي يحدث/g, "وش قاعد يصير"],
+        [/ما الذي يحدث/g, "وش صاير"],
         [/ماذا يحدث/g, "وش يصير"],
         [/ما خطبك/g, "وش فيك"],
         [/ما بك/g, "وش بلاك"],
+        [/ما المشكلة/g, "وش المشكلة"],
         [/ما الأمر/g, "وش العلم"],
+        [/هل أنت بخير/g, "عساك طيب"],
+        [/أنا بخير/g, "أنا طيب وبخير"],
+        [/هل أنت متأكد/g, "متأكد أنت"],
+        [/هل أنت مجنون/g, "أنت صاحي ولا مهبول"],
+        [/هل فقدت عقلك/g, "أنت انهبلت"],
         [/هل تمزح معي/g, "تستهبل علي أنت"],
         [/هل تمزح/g, "تستهبل"],
+        [/لا تمزح/g, "لا تستهبل"],
+        [/على محمل الجد/g, "من جدك"],
+        [/هل تتكلم بجدية/g, "تتكلم من جدك"],
+        [/أقسم لك/g, "والله العظيم"],
+        [/أعدك/g, "أبشر من عيوني"],
+        [/صدقني/g, "صدقني والله"],
+        [/لا أصدق ذلك/g, "ماني مصدق"],
+        [/لا أصدق/g, "ما أصدق"],
+        [/من المستحيل/g, "ما فيه أمل"],
+        [/مستحيل/g, "مهوب عاقل"],
+        [/يا إلهي/g, "يا ساتر"],
+        [/بحق الجحيم/g, "وش هالمصيبة"],
+        [/بحق السماء/g, "يا ساتر استر"],
+        [/اللعنة عليك/g, "حسبي الله عليك"],
+        [/اللعنة/g, "يلعن بليسك"],
+        [/تباً لك/g, "أفا بس"],
+        [/تباً/g, "يا ليل"],
+        [/سحقاً/g, "يا ساتر"],
+        [/هراء/g, "كلام فاضي"],
+        [/هذا هراء/g, "ذا حكي فاضي"],
         [/لا يهم/g, "ما يخالف"],
         [/لا بأس/g, "ما عليه"],
-        [/على الإطلاق/g, "أبد"],
-        [/بالطبع/g, "أكيد"],
-        [/بالتأكيد/g, "إي والله"],
-        [/ربما/g, "يمكن"],
+        [/لا تقلق/g, "لا تشيل هم"],
+        [/اهدأ/g, "هد اللعب"],
+        [/استرخ/g, "وسع صدرك"],
+        [/على الإطلاق/g, "أبد والله"],
+        [/بالتأكيد/g, "أكيد"],
+        [/بالطبع/g, "طبعاً"],
+        [/حسناً إذاً/g, "طيب أجل"],
         [/حسناً/g, "طيب"],
         [/حسنا/g, "طيب"],
-        [/يا إلهي/g, "يا ساتر"],
-        [/اللعنة/g, "يلعن بليسك"],
-        [/تباً/g, "أفا"],
-        [/مستحيل/g, "مهوب عاقل"],
+        [/أعتقد أنني/g, "هقوتي أني"],
         [/أعتقد أن/g, "أظن أن"],
+        [/أعتقد ذلك/g, "هقوتي كذا"],
         [/أعتقد/g, "هقوتي"],
+        [/لا أعتقد ذلك/g, "ما هقيت"],
         [/لا أعرف/g, "ما أدري"],
-        [/لا أعلم/g, "مدري"],
+        [/لا أعلم/g, "والله مدري"],
+        [/ليس لدي فكرة/g, "ما عندي أي علم"],
+        [/هل تعرف/g, "تدري"],
+        [/هل تعلم/g, "تدري"],
+        [/كما تعلم/g, "مثل ما أنت خابر"],
+        [/أنت تعلم/g, "أنت خابر"],
+        [/أفهم ذلك/g, "فاهم عليك"],
+        [/لا أفهم/g, "ما فهمت"],
+        [/هل تفهم/g, "فهمت علي"],
         [/أريد أن/g, "أبي"],
+        [/أريدك أن/g, "أبيك"],
+        [/لا أريد أن/g, "ما أبي"],
+        [/لا أريد/g, "ما أبي"],
         [/أريد/g, "أبي"],
+        [/ماذا تريد/g, "وش تبي"],
+        [/هل تريد/g, "تبي"],
+        [/تريد أن/g, "تبي"],
         [/تريد/g, "تبي"],
+        [/يريد أن/g, "يبي"],
         [/يريد/g, "يبي"],
+        [/تريدين/g, "تبين"],
+        [/نريد أن/g, "نبي"],
         [/نريد/g, "نبي"],
+        [/يريدون/g, "يبون"],
+        [/كنت أريد/g, "كان ودي"],
+        [/أود أن/g, "ودي"],
+        [/يجب أن أذهب/g, "لازم أمشي الحين"],
+        [/يجب أن نذهب/g, "لازم نمشي"],
+        [/يجب عليك/g, "لازم عليك"],
+        [/يجب أن/g, "لازم"],
+        [/يتوجب علينا/g, "لازم علينا"],
+        [/عليك أن/g, "لازم"],
+        [/علينا أن/g, "لازم"],
+        [/لا يمكنك/g, "ما تقدر"],
+        [/لا أستطيع/g, "ما أقدر"],
+        [/هل يمكنك/g, "تقدر"],
+        [/هل تستطيع/g, "تقدر"],
+        [/أستطيع/g, "أقدر"],
+        [/نستطيع/g, "نقدر"],
+        [/ربما/g, "يمكن"],
+        [/من الممكن/g, "يمدي"],
         [/أنت محق/g, "صح عليك"],
         [/معك حق/g, "عز الله صدقت"],
+        [/هذا صحيح/g, "إي بالله صح"],
+        [/ليس صحيحاً/g, "مهوب صدق"],
         [/بسرعة/g, "عجل"],
+        [/أسرع/g, "عجل علينا"],
         [/انتظر لحظة/g, "اصبر شوي"],
+        [/انتظر دقيقة/g, "اصبر دقيقة"],
         [/انتظر/g, "اصبر"],
+        [/توقف عن ذلك/g, "فكنا من هالحركات"],
+        [/توقف/g, "وقف"],
         [/تعال إلى هنا/g, "تعال جاي"],
+        [/تعال معي/g, "امش معي"],
+        [/هيا بنا/g, "يلا مشينا"],
+        [/هيا/g, "يلا"],
+        [/لنذهب/g, "مشينا"],
         [/اذهب من هنا/g, "توكل على الله"],
+        [/ابتعد عني/g, "وخر عني"],
+        [/ابتعد/g, "وخر"],
         [/أغرب عن وجهي/g, "اقلب وجهك"],
         [/اصمت/g, "اسكت بس"],
         [/أغلق فمك/g, "سكر فمك"],
+        [/اسمعني/g, "اسمع كلامي"],
+        [/انظر إلى هذا/g, "شف ذا بالله"],
+        [/انظر إلي/g, "طالع فيني"],
+        [/من فضلك/g, "لا هنت"],
+        [/أرجوك/g, "تكفى"],
+        [/أتوسل إليك/g, "تكفى طلبتك"],
+        [/أنا آسف/g, "حقك علي، آسف"],
+        [/آسف/g, "المعذرة"],
+        [/أعتذر/g, "أعتذر منك"],
+        [/في الحقيقة/g, "الصراحة"],
+        [/في الواقع/g, "الصدق عاد"],
+        [/بصراحة/g, "الصراحة"],
+        [/على أي حال/g, "المهم"],
+        [/بالمناسبة/g, "على طاري هالموضوع"],
+        [/منذ فترة/g, "من زمان"],
+        [/منذ وقت طويل/g, "من مبطي"],
+        [/طوال الوقت/g, "طول الوقت"],
+        [/في كل مكان/g, "بكل مكان"],
+        [/لا أحد/g, "ما فيه أحد"],
+        [/كل شيء/g, "كلش"],
+        [/أي شيء/g, "أي شي"],
+        [/شيء ما/g, "شي"],
+        [/لا شيء/g, "ولا شي"],
         [/كثيراً/g, "واجد"],
         [/كثيرا/g, "واجد"],
         [/قليلاً/g, "شوي"],
         [/قليلا/g, "شوي"],
         [/الآن/g, "الحين"],
+        [/حتى الآن/g, "للحين"],
+        [/بعد الآن/g, "من اليوم ورايح"],
+        [/لاحقاً/g, "بعدين"],
+        [/فيما بعد/g, "بعدين"],
+        [/فوراً/g, "الحين على طول"],
+        [/حالا/g, "الحين"],
         [/غداً/g, "بكرة"],
         [/غدا/g, "بكرة"],
         [/البارحة/g, "أمس"],
+        [/الليلة الماضية/g, "البارح"],
         [/هكذا/g, "كذا"],
+        [/مثل هذا/g, "زي كذا"],
         [/لماذا/g, "ليش"],
         [/كيف حالك/g, "وشلونك"],
         [/كيف/g, "وشلون"],
+        [/إلى أين/g, "على وين"],
+        [/من أين/g, "من وين"],
         [/أين/g, "وين"],
         [/من هذا/g, "منهو ذا"],
+        [/من هذه/g, "منهي ذي"],
         [/ما هذا/g, "وش ذا"],
         [/ما هذه/g, "وش ذي"],
+        [/ما ذلك/g, "وش ذاك"],
         [/ماذا/g, "وش"],
         [/أليس كذلك/g, "صح ولا لا"],
         [/ليس لدي/g, "ما عندي"],
+        [/لدي/g, "عندي"],
+        [/لديك/g, "عندك"],
+        [/لديه/g, "عنده"],
+        [/لديها/g, "عندها"],
+        [/لدينا/g, "عندنا"],
+        [/ليس هناك/g, "ما فيه"],
         [/لا يوجد/g, "ما فيه"],
+        [/هل هناك/g, "فيه"],
+        [/هل يوجد/g, "فيه"],
+        [/هناك/g, "فيه"],
         [/يوجد/g, "فيه"],
+        [/لم أكن/g, "ما كنت"],
+        [/لم يكن/g, "ما كان"],
+        [/لم تكن/g, "ما كانت"],
+        [/لن أكون/g, "ماراح أكون"],
+        [/سأكون/g, "ابكون"],
+        [/سيكون/g, "بيكون"],
+        [/ستكون/g, "بتكون"],
         [/ليس/g, "مهوب"],
         [/ليست/g, "مهيب"],
         [/لست/g, "موب"],
+        [/لسنا/g, "ما حنا"],
         [/نعم/g, "إي"],
+        [/أجل/g, "إي والله"],
         [/كلا/g, "لا والله"],
         [/يا صاحبي/g, "يا خويي"],
         [/يا صديقي/g, "يا بعدي"],
+        [/يا رفاق/g, "يا عيال"],
+        [/يا شباب/g, "يا العيال"],
         [/يا رجل/g, "يا رجال"],
+        [/أيها الرجل/g, "يا ابن الحلال"],
         [/عزيزتي/g, "يا بعد حيي"],
+        [/حبيبتي/g, "يا غلاي"],
+        [/حبيبي/g, "يا بعدي"],
         [/سيدي/g, "يا طويل العمر"],
-        [/أبي/g, "أبوي"],
-        [/أخي/g, "أخوي"]
+        [/سيدتي/g, "يا طويلة العمر"]
     ];
 
     for (const [regex, replacement] of phraseRules) {
         t = t.replace(regex, replacement);
     }
 
+    // 3. تحويل قواعد النفي والمستقبل الفصيحة (سوف / سـ / لن / لم) إلى القواعد النجدية
+    t = t
+        .replace(/\bسوف أ([^\s]+)/g, "اب$1")
+        .replace(/\bسوف ن([^\s]+)/g, "بن$1")
+        .replace(/\bسوف ي([^\s]+)/g, "بي$1")
+        .replace(/\bسوف ت([^\s]+)/g, "بت$1")
+        .replace(/\bسأذهب\b/g, "ابروح")
+        .replace(/\bسنذهب\b/g, "بنروح")
+        .replace(/\bسيذهب\b/g, "بيروح")
+        .replace(/\bستذهب\b/g, "بتروح")
+        .replace(/\bسأفعل\b/g, "ابسوي")
+        .replace(/\bسأعود\b/g, "ابرجع")
+        .replace(/\bسأخبرك\b/g, "ابقولك")
+        .replace(/\bسأتصل\b/g, "ابدق")
+        .replace(/\bسأقتل\b/g, "ابذبح")
+        .replace(/\bسأموت\b/g, "ابموت")
+        .replace(/\bسأرى\b/g, "ابشوف")
+        .replace(/\bلن أ([^\s]+)/g, "ماراح أ$1")
+        .replace(/\bلن ن([^\s]+)/g, "ماراح ن$1")
+        .replace(/\bلن ي([^\s]+)/g, "ماراح ي$1")
+        .replace(/\bلن ت([^\s]+)/g, "ماراح ت$1")
+        .replace(/\bلم أ([^\s]+)/g, "ما أ$1")
+        .replace(/\bلم ن([^\s]+)/g, "ما ن$1")
+        .replace(/\bلم ي([^\s]+)/g, "ما ي$1")
+        .replace(/\bلم ت([^\s]+)/g, "ما ت$1")
+        .replace(/\bلا ت([^\s]+)/g, "لا ت$1")
+        .replace(/\bهل أ([^\s]+)/g, "أ$1")
+        .replace(/\bهل ت([^\s]+)/g, "ت$1")
+        .replace(/\bهل ي([^\s]+)/g, "ي$1")
+        .replace(/\bهل ن([^\s]+)/g, "ن$1")
+        .replace(/\bلقد\b/g, "");
+
+    // 4. تحويل الكلمات والمفردات الفصحى الشائعة إلى مفردات نجدية
     const wordRules = [
         [/\bهذا\b/g, "ذا"],
         [/\bهذه\b/g, "ذي"],
         [/\bهؤلاء\b/g, "ذولا"],
+        [/\bأولئك\b/g, "ذوليك"],
         [/\bذلك\b/g, "ذاك"],
         [/\bتلك\b/g, "ذيك"],
         [/\bالذي\b/g, "اللي"],
         [/\bالتي\b/g, "اللي"],
         [/\bالذين\b/g, "اللي"],
+        [/\bاللذان\b/g, "اللي"],
         [/\bأيضاً\b/g, "بعد"],
         [/\bأيضا\b/g, "بعد"],
         [/\bفقط\b/g, "بس"],
         [/\bجداً\b/g, "مرة"],
         [/\bجدا\b/g, "مرة"],
-        [/\bسوف\b/g, "راح"],
         [/\bنحن\b/g, "حنا"],
+        [/\bأبي\b/g, "أبوي"],
+        [/\bوالدي\b/g, "الوالد"],
+        [/\bوالدتي\b/g, "الوالدة"],
+        [/\bأخي\b/g, "أخوي"],
         [/\bداخل\b/g, "جوا"],
         [/\bخارج\b/g, "برا"],
         [/\bأمام\b/g, "قدام"],
         [/\bخلف\b/g, "ورا"],
         [/\bبجانب\b/g, "جنب"],
+        [/\bفوق\b/g, "فوق"],
+        [/\bتحت\b/g, "تحت"],
         [/\bمثل\b/g, "زي"],
         [/\bنقود\b/g, "دراهم"],
         [/\bالمال\b/g, "الدراهم"],
+        [/\bأموال\b/g, "دراهم"],
         [/\bسيارة\b/g, "موتر"],
         [/\bالسيارة\b/g, "الموتر"],
+        [/\bمنزل\b/g, "بيت"],
+        [/\bالمنزل\b/g, "البيت"],
+        [/\bعمل\b/g, "شغل"],
+        [/\bالعمل\b/g, "الشغل"],
+        [/\bطعام\b/g, "أكل"],
+        [/\bالطعام\b/g, "الأكل"],
+        [/\bماء\b/g, "موية"],
+        [/\bالماء\b/g, "الموية"],
+        [/\bملابس\b/g, "هدوم"],
+        [/\bالملابس\b/g, "الهدوم"],
+        [/\bهاتف\b/g, "جوال"],
+        [/\bالهاتف\b/g, "الجوال"],
+        [/\bشرطة\b/g, "دورية"],
+        [/\bالشرطة\b/g, "الشرطة"],
+        [/\bطبيب\b/g, "دكتور"],
+        [/\bالطبيب\b/g, "الدكتور"],
         [/\bجميل\b/g, "زين"],
         [/\bجيد\b/g, "زين"],
+        [/\bرائع\b/g, "رهيب"],
         [/\bسيء\b/g, "شين"],
+        [/\bغريب\b/g, "غريب"],
+        [/\bمجنون\b/g, "مهبول"],
+        [/\bغبي\b/g, "دبشة"],
+        [/\bأحمق\b/g, "خبل"],
+        [/\bكاذب\b/g, "نصاب"],
+        [/\bصحيح\b/g, "صح"],
         [/\bانظر\b/g, "شف"],
+        [/\bانظري\b/g, "شوفي"],
+        [/\bانظروا\b/g, "شوفوا"],
         [/\bأعطني\b/g, "عطني"],
         [/\bدعني\b/g, "خلني"],
         [/\bدعنا\b/g, "خلنا"],
-        [/\bاتركه\b/g, "خله"]
+        [/\bاتركه\b/g, "خله"],
+        [/\bاتركها\b/g, "خلها"],
+        [/\bاذهب\b/g, "رح"],
+        [/\bاذهبي\b/g, "روحي"],
+        [/\bنذهب\b/g, "نروح"],
+        [/\bأذهب\b/g, "أروح"],
+        [/\bيذهب\b/g, "يروح"],
+        [/\bتذهب\b/g, "تروح"],
+        [/\bجاء\b/g, "جا"],
+        [/\bأتى\b/g, "جا"],
+        [/\bرأيت\b/g, "شفت"],
+        [/\bأرى\b/g, "أشوف"],
+        [/\bترى\b/g, "تشوف"],
+        [/\bيرى\b/g, "يشوف"],
+        [/\bنرى\b/g, "نشوف"],
+        [/\bقلت\b/g, "قلت"],
+        [/\bفعلت\b/g, "سويت"],
+        [/\bفعل\b/g, "سوى"],
+        [/\bأفعل\b/g, "أسوي"],
+        [/\bتفعل\b/g, "تسوي"],
+        [/\bيفعل\b/g, "يسوي"],
+        [/\bنفعل\b/g, "نسوي"],
+        [/\bتحدث\b/g, "تكلم"],
+        [/\bأتحدث\b/g, "أتكلم"],
+        [/\bيتحدث\b/g, "يتكلم"],
+        [/\bتتحدث\b/g, "تتكلم"]
     ];
 
     for (const [regex, replacement] of wordRules) {
         t = t.replace(regex, replacement);
     }
 
+    // 5. تعريب أقواس المؤثرات الصوتية [SDH] إلى لهجة نجدية
     t = t.replace(/\[([^\]]+)\]/g, (match, inside) => {
         let sdh = inside
             .replace(/يتنهد/g, "يتنهد بضيقة")
             .replace(/تتنهد/g, "تتنهد بضيقة")
+            .replace(/لهاث/g, "يلقط أنفاسه")
+            .replace(/يلهث/g, "يلقط أنفاسه")
             .replace(/يسعل/g, "يكح")
             .replace(/سعال/g, "كحة")
             .replace(/خطوات/g, "صوت مشي")
-            .replace(/صراخ/g, "صياح");
+            .replace(/صراخ/g, "صياح")
+            .replace(/يصرخ/g, "يصايح")
+            .replace(/تصرخ/g, "تصايح")
+            .replace(/يبكي/g, "يصيح")
+            .replace(/تبكي/g, "تصيح")
+            .replace(/بكاء/g, "صياح")
+            .replace(/يضحك/g, "يضحك")
+            .replace(/قهقهة/g, "ضحك بصوت عالي")
+            .replace(/همس/g, "يتساسر");
         return `[${sdh}]`;
     });
 
-    return t;
+    return t.replace(/\s+/g, ' ').trim();
 }
 
 async function fallbackTranslateChunk(chunk) {
-    const combinedText = chunk.map(b => b.text).join('\n');
-    try {
-        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q=${encodeURIComponent(combinedText)}`;
-        const res = await axios.get(url, {
-            timeout: 6000,
-            headers: { "User-Agent": "Mozilla/5.0" }
-        });
-        const translatedFull = res.data[0].map(item => item[0]).join('');
-        const translatedLines = translatedFull.split('\n');
-
-        chunk.forEach((b, idx) => {
-            const rawArabic = (translatedLines[idx] && translatedLines[idx].trim()) ? translatedLines[idx].trim() : b.text;
-            b.translated = convertToNajdiDialect(rawArabic);
-        });
-    } catch (err) {
-        chunk.forEach(b => { b.translated = b.text; });
+    const subSize = 40;
+    const subChunks = [];
+    for (let i = 0; i < chunk.length; i += subSize) {
+        subChunks.push(chunk.slice(i, i + subSize));
     }
+
+    await Promise.all(subChunks.map(async (subChunk) => {
+        const combinedText = subChunk.map(b => b.text).join('\n');
+        try {
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ar&dt=t&q=${encodeURIComponent(combinedText)}`;
+            const res = await axios.get(url, {
+                timeout: 6000,
+                headers: { "User-Agent": "Mozilla/5.0" }
+            });
+            const translatedFull = res.data[0].map(item => item[0]).join('');
+            const translatedLines = translatedFull.split('\n');
+
+            subChunk.forEach((b, idx) => {
+                const rawArabic = (translatedLines[idx] && translatedLines[idx].trim()) ? translatedLines[idx].trim() : b.text;
+                b.translated = convertToNajdiDialect(rawArabic);
+            });
+        } catch (err) {
+            subChunk.forEach(b => { b.translated = b.text; });
+        }
+    }));
 }
 
 async function translateChunkToNajdi(chunk) {
-    const geminiKey = process.env.GEMINI_API_KEY;
+    const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
 
     if (geminiKey) {
         try {
             const numberedInput = chunk.map((b, i) => `${i + 1}|||${b.text}`).join('\n');
-            const prompt = `أنت مترجم أفلام ومسلسلات سعودي خبير باللهجة العامية النجدية (الرياض والقصيم).
-ترجم أسطر الترجمة الإنجليزية التالية إلى اللهجة العامية النجدية الطبيعية:
-1. حول الكلام والأمثال الشعبية والنكات والمصطلحات الإنجليزية (Idioms/Slang) إلى ما يقابلها في المعنى باللهجة النجدية الأصيلة (مثل: وش السالفة، يا رجال، هقوتي، ما يخالف، عجل، الدراهم، الموتر، يستهبل، ذولا، مهوب)، وإذا كان هناك مصطلح غامض اشرح معناه باختصار بالنجدي.
-2. حافظ على أقواس المؤثرات الصوتية [SDH] وترجم ما بداخلها باللهجة النجدية.
-3. أخرج الترجمة فقط بنفس رقم السطر متبوعاً بالفاصل ||| دون أي كلام إضافي.
-
-النص:
-${numberedInput}`;
+            const systemPrompt = `أنت مترجم سعودي من نجد (الرياض والقصيم). مهمتك ترجمة حوارات الأفلام والمسلسلات من الإنجليزية إلى اللهجة العامية النجدية القحة فقط.
+يُمنع منعاً باتاً استخدام اللغة العربية الفصحى مثل (ماذا، لماذا، سوف، هذا، حسناً، أريد، لا أعلم، تباً).
+استبدلها دائماً بمرادفاتها النجدية الطبيعية مثل: (وش السالفة، ليش، وشلون، ابروح، ذا، ذي، ذولا، طيب، أبي، تبي، مدري، هقوتي، ما يخالف، يا رجال، يستهبل، الدراهم، الموتر، عجل، واجد، شوي، الحين، مهوب).
+ترجم الأمثال والمصطلحات الإنجليزية (Idioms/Slang) إلى معناها باللهجة النجدية، وحافظ على أقواس المؤثرات الصوتية [SDH] باللهجة النجدية.
+أخرج كل سطر بنفس رقمه متبوعاً بـ ||| ثم الترجمة النجدية فقط بدون أي مقدمات.`;
 
             const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
             const response = await axios.post(geminiUrl, {
-                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+                contents: [{ parts: [{ text: numberedInput }] }],
                 generationConfig: {
-                    temperature: 0.25,
+                    temperature: 0.35,
                     thinkingConfig: { thinkingBudget: 0 }
                 }
-            }, { timeout: 6500 });
+            }, { timeout: 8000 });
 
             const aiOutput = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
             const map = {};
@@ -291,13 +563,13 @@ ${numberedInput}`;
                 if (parts.length >= 2) {
                     const idx = parseInt(parts[0].replace(/[^\d]/g, ''), 10) - 1;
                     if (!isNaN(idx)) {
-                        map[idx] = parts.slice(1).join('|||').trim();
+                        // تمرير ناتج Gemini أيضاً على الفلتر النجدي لضمان 0% فصحى
+                        map[idx] = convertToNajdiDialect(parts.slice(1).join('|||').trim());
                     }
                 }
             });
 
-            if (Object.keys(map).length >= chunk.length * 0.6) {
-                // إذا بقي أي سطر ناقص يكمله المحرك النجدي المدمج فوراً
+            if (Object.keys(map).length >= chunk.length * 0.5) {
                 const missing = chunk.filter((_, idx) => !map[idx]);
                 if (missing.length > 0) {
                     await fallbackTranslateChunk(missing);
@@ -308,7 +580,7 @@ ${numberedInput}`;
                 return;
             }
         } catch (e) {
-            // ينتقل تلقائياً للمحرك السريع عند انتهاء المهلة أو ضغط الشبكة
+            // في حال ضغط الشبكة أو تجاوز حد Gemini ينتقل فوراً للمحرك النجدي العميق
         }
     }
 
@@ -339,8 +611,8 @@ async function translateSrtToNajdi(srtContent) {
         }
     }
 
-    // تقسيم الحجم إلى 45 سطراً لتقليل عدد الطلبات وتسريع الاستجابة
-    const chunkSize = 45;
+    // تقسيم الحلقة إلى دفعات كبيرة (200 سطر) لعدم تجاوز حد طلبات Gemini المجاني في الدقيقة
+    const chunkSize = 200;
     const chunks = [];
     for (let i = 0; i < parsedBlocks.length; i += chunkSize) {
         chunks.push(parsedBlocks.slice(i, i + chunkSize));
@@ -369,6 +641,7 @@ app.get(['/subtitles/:type/:id/:extra.json', '/subtitles/:type/:id.json'], async
         const extraParams = parseExtraParams(cleanExtra);
         const videoFilename = extraParams.filename || '';
         const hasVideoHash = Boolean(extraParams.videoHash);
+        const hasGemini = Boolean((process.env.GEMINI_API_KEY || '').trim());
 
         const sources = [
             { name: "OpenSub", url: `https://opensubtitles-v3.strem.io/subtitles/${type}/${cleanId}${extraPath}.json` },
@@ -419,14 +692,15 @@ app.get(['/subtitles/:type/:id/:extra.json', '/subtitles/:type/:id.json'], async
         const topSubs = scoredSubs.slice(0, 8);
         const protocol = req.headers['x-forwarded-proto'] || req.protocol;
         const host = `${protocol}://${req.get('host')}`;
+        const aiTag = hasGemini ? "نجدي-AI" : "نجدي";
 
         const translatedSubtitles = topSubs.map((sub, index) => {
             const matchLabel = sub.badge ? ` [${sub.badge}]` : '';
             return {
                 id: index === 0
-                    ? `الترجمة العامية-1 (${sub.source})${matchLabel}`
-                    : `الترجمة العامية-${index + 1} (${sub.source})${matchLabel}`,
-                url: `${host}/translate-najdi.srt?url=${encodeURIComponent(sub.url)}`,
+                    ? `الترجمة العامية-1 (${aiTag} | ${sub.source})${matchLabel}`
+                    : `الترجمة العامية-${index + 1} (${aiTag} | ${sub.source})${matchLabel}`,
+                url: `${host}/translate-najdi.srt?v=2&url=${encodeURIComponent(sub.url)}`,
                 lang: "ara"
             };
         });
@@ -441,9 +715,10 @@ app.get(['/translate-najdi.srt', '/translate.srt', '/translate'], async (req, re
     const subUrl = req.query.url;
     if (!subUrl) return res.status(400).send("Missing URL");
 
-    if (subtitleCache.has(subUrl)) {
+    const cacheKey = `v2_${subUrl}`;
+    if (subtitleCache.has(cacheKey)) {
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        return res.send(subtitleCache.get(subUrl));
+        return res.send(subtitleCache.get(cacheKey));
     }
 
     try {
@@ -454,7 +729,7 @@ app.get(['/translate-najdi.srt', '/translate.srt', '/translate'], async (req, re
             const firstKey = subtitleCache.keys().next().value;
             subtitleCache.delete(firstKey);
         }
-        subtitleCache.set(subUrl, najdiSrt);
+        subtitleCache.set(cacheKey, najdiSrt);
 
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
         res.send(najdiSrt);
@@ -465,7 +740,7 @@ app.get(['/translate-najdi.srt', '/translate.srt', '/translate'], async (req, re
 
 const port = process.env.PORT || 7000;
 if (require.main === module) {
-    app.listen(port, () => console.log(`Najdi Addon active on port ${port}`));
+    app.listen(port, () => console.log(`Najdi Addon v1.1.0 active on port ${port}`));
 }
 
 module.exports = app;
